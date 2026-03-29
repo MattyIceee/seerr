@@ -63,6 +63,8 @@ userSettingsRoutes.get<{ id: string }, UserSettingsGeneralResponse>(
         globalTvQuotaLimit: defaultQuotas.tv.quotaLimit,
         watchlistSyncMovies: user.settings?.watchlistSyncMovies,
         watchlistSyncTv: user.settings?.watchlistSyncTv,
+        watchlistSyncToPlexMovies: user.settings?.watchlistSyncToPlexMovies,
+        watchlistSyncToPlexTv: user.settings?.watchlistSyncToPlexTv,
       });
     } catch (e) {
       next({ status: 500, message: e.message });
@@ -119,6 +121,21 @@ userSettingsRoutes.post<
       user.tvQuotaLimit = req.body.tvQuotaLimit;
     }
 
+    // Enforce global mutual exclusivity between Auto-Request and Sync-to-Plex Watchlist.
+    // If either sync-to-plex field is enabled, disable both auto-request fields, and vice versa.
+    let watchlistSyncMovies = req.body.watchlistSyncMovies;
+    let watchlistSyncTv = req.body.watchlistSyncTv;
+    let watchlistSyncToPlexMovies = req.body.watchlistSyncToPlexMovies;
+    let watchlistSyncToPlexTv = req.body.watchlistSyncToPlexTv;
+
+    if (watchlistSyncToPlexMovies || watchlistSyncToPlexTv) {
+      watchlistSyncMovies = false;
+      watchlistSyncTv = false;
+    } else if (watchlistSyncMovies || watchlistSyncTv) {
+      watchlistSyncToPlexMovies = false;
+      watchlistSyncToPlexTv = false;
+    }
+
     if (!user.settings) {
       user.settings = new UserSettings({
         user: req.user,
@@ -127,8 +144,10 @@ userSettingsRoutes.post<
         discoverRegion: req.body.discoverRegion,
         streamingRegion: req.body.streamingRegion,
         originalLanguage: req.body.originalLanguage,
-        watchlistSyncMovies: req.body.watchlistSyncMovies,
-        watchlistSyncTv: req.body.watchlistSyncTv,
+        watchlistSyncMovies,
+        watchlistSyncTv,
+        watchlistSyncToPlexMovies,
+        watchlistSyncToPlexTv,
       });
     } else {
       user.settings.discordId = req.body.discordId;
@@ -136,8 +155,10 @@ userSettingsRoutes.post<
       user.settings.discoverRegion = req.body.discoverRegion;
       user.settings.streamingRegion = req.body.streamingRegion;
       user.settings.originalLanguage = req.body.originalLanguage;
-      user.settings.watchlistSyncMovies = req.body.watchlistSyncMovies;
-      user.settings.watchlistSyncTv = req.body.watchlistSyncTv;
+      user.settings.watchlistSyncMovies = watchlistSyncMovies;
+      user.settings.watchlistSyncTv = watchlistSyncTv;
+      user.settings.watchlistSyncToPlexMovies = watchlistSyncToPlexMovies;
+      user.settings.watchlistSyncToPlexTv = watchlistSyncToPlexTv;
     }
 
     const savedUser = await userRepository.save(user);
@@ -151,6 +172,8 @@ userSettingsRoutes.post<
       originalLanguage: savedUser.settings?.originalLanguage,
       watchlistSyncMovies: savedUser.settings?.watchlistSyncMovies,
       watchlistSyncTv: savedUser.settings?.watchlistSyncTv,
+      watchlistSyncToPlexMovies: savedUser.settings?.watchlistSyncToPlexMovies,
+      watchlistSyncToPlexTv: savedUser.settings?.watchlistSyncToPlexTv,
       email: savedUser.email,
     });
   } catch (e) {

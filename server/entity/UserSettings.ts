@@ -72,6 +72,12 @@ export class UserSettings {
   @Column({ nullable: true })
   public watchlistSyncTv?: boolean;
 
+  @Column({ nullable: true })
+  public watchlistSyncToPlexMovies?: boolean;
+
+  @Column({ nullable: true })
+  public watchlistSyncToPlexTv?: boolean;
+
   @Column({
     type: 'text',
     nullable: true,

@@ -1,3 +1,4 @@
+import PlexTvAPI from '@server/api/plextv';
 import type { RadarrMovieOptions } from '@server/api/servarr/radarr';
 import RadarrAPI from '@server/api/servarr/radarr';
 import type {
@@ -16,6 +17,7 @@ import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import Season from '@server/entity/Season';
+import { User } from '@server/entity/User';
 import SeasonRequest from '@server/entity/SeasonRequest';
 import notificationManager, { Notification } from '@server/lib/notifications';
 import { getSettings } from '@server/lib/settings';
@@ -177,6 +179,77 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
         errorMessage: e.message,
         mediaId: entity.id,
       });
+    }
+  }
+
+  private async syncToPlexWatchlist(
+    entity: MediaRequest,
+    event?: UpdateEvent<MediaRequest>
+  ): Promise<void> {
+    let user: User | null = null;
+    if (event?.manager) {
+      user = await event.manager.findOne(User, {
+        where: { id: entity.requestedBy.id },
+        select: ['id', 'plexToken'],
+        relations: ['settings'],
+      });
+    }
+    if (!user) {
+      const userRepository = getRepository(User);
+      user = await userRepository.findOne({
+        where: { id: entity.requestedBy.id },
+        select: ['id', 'plexToken'],
+        relations: ['settings'],
+      });
+    }
+
+    if (!user?.plexToken) {
+      return;
+    }
+
+    const isMovie = entity.media.mediaType === MediaType.MOVIE;
+    const settingEnabled = isMovie
+      ? user.settings?.watchlistSyncToPlexMovies
+      : user.settings?.watchlistSyncToPlexTv;
+
+    if (!settingEnabled) {
+      return;
+    }
+
+    const tmdb = new TheMovieDb();
+
+    try {
+      let title: string;
+      if (isMovie) {
+        const movie = await tmdb.getMovie({ movieId: entity.media.tmdbId });
+        title = movie.title;
+      } else {
+        const tv = await tmdb.getTvShow({ tvId: entity.media.tmdbId });
+        title = tv.name;
+      }
+
+      const plexTvApi = new PlexTvAPI(user.plexToken);
+      await plexTvApi.addToWatchlist(
+        title,
+        entity.media.tmdbId,
+        isMovie ? 'movie' : 'show'
+      );
+
+      logger.info(`Added "${title}" to Plex watchlist for user ${user.id}`, {
+        label: 'Sync to Plex Watchlist',
+        userId: user.id,
+        tmdbId: entity.media.tmdbId,
+      });
+    } catch (e) {
+      logger.error(
+        `Failed to add media to Plex watchlist for user ${user.id}`,
+        {
+          label: 'Sync to Plex Watchlist',
+          userId: user.id,
+          tmdbId: entity.media.tmdbId,
+          errorMessage: e.message,
+        }
+      );
     }
   }
 
@@ -999,9 +1072,11 @@ export class MediaRequestSubscriber implements EntitySubscriberInterface<MediaRe
       if (event.entity.status === MediaRequestStatus.COMPLETED) {
         if (event.entity.media.mediaType === MediaType.MOVIE) {
           await this.notifyAvailableMovie(event.entity as MediaRequest, event);
+          await this.syncToPlexWatchlist(event.entity as MediaRequest, event);
         }
         if (event.entity.media.mediaType === MediaType.TV) {
           await this.notifyAvailableSeries(event.entity as MediaRequest, event);
+          await this.syncToPlexWatchlist(event.entity as MediaRequest, event);
         }
       }
     } catch (e) {

@@ -133,6 +133,20 @@ export interface PlexWatchlistCache {
   response: WatchlistResponse;
 }
 
+interface DiscoverSearchResponse {
+  MediaContainer: {
+    SearchResult?: {
+      Metadata?: {
+        ratingKey: string;
+        guid: string;
+        type: 'movie' | 'show';
+        title: string;
+        Guid?: { id: string }[];
+      }[];
+    }[];
+  };
+}
+
 class PlexTvAPI extends ExternalAPI {
   private authToken: string;
 
@@ -393,6 +407,72 @@ class PlexTvAPI extends ExternalAPI {
     } catch (e) {
       logger.error('Failed to ping token', {
         label: 'Plex Refresh Token',
+        errorMessage: e.message,
+      });
+    }
+  }
+
+  public async addToWatchlist(
+    title: string,
+    tmdbId: number,
+    mediaType: 'movie' | 'show'
+  ): Promise<void> {
+    try {
+      const searchResponse = await this.axios.get<DiscoverSearchResponse>(
+        '/library/search',
+        {
+          params: {
+            query: title,
+            limit: 10,
+            searchTypes: mediaType,
+            includeMetadata: 1,
+          },
+          baseURL: 'https://discover.provider.plex.tv',
+        }
+      );
+
+      const results =
+        searchResponse.data.MediaContainer.SearchResult?.flatMap(
+          (sr) => sr.Metadata ?? []
+        ) ?? [];
+
+      const match = results.find((item) =>
+        item.Guid?.some((g) => g.id === `tmdb://${tmdbId}`)
+      );
+
+      if (!match) {
+        logger.warn(
+          `Could not find Plex ratingKey for "${title}" (TMDB: ${tmdbId}); skipping watchlist sync`,
+          { label: 'Sync to Plex Watchlist' }
+        );
+        return;
+      }
+
+      const ratingKey = match.guid.split('/').pop();
+
+      if (!ratingKey) {
+        logger.warn(
+          `Could not extract ratingKey from Plex GUID "${match.guid}" for "${title}"; skipping watchlist sync`,
+          { label: 'Sync to Plex Watchlist' }
+        );
+        return;
+      }
+
+      await this.axios.put(
+        `/actions/addToWatchlist?ratingKey=${ratingKey}`,
+        null,
+        { baseURL: 'https://discover.provider.plex.tv' }
+      );
+
+      logger.info(`Added "${title}" to Plex watchlist`, {
+        label: 'Sync to Plex Watchlist',
+        tmdbId,
+        ratingKey,
+      });
+    } catch (e) {
+      logger.error(`Failed to add "${title}" to Plex watchlist`, {
+        label: 'Sync to Plex Watchlist',
+        tmdbId,
         errorMessage: e.message,
       });
     }

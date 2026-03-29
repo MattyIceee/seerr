@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/matthewgrider/Documents/GitHub/Seer/server/migration/postgres/1772323200000* /Users/matthewgrider/Documents/GitHub/Seer/server/migration/sqlite/1772323200000*)"
+    ]
+  }
+}
